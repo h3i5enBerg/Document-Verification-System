@@ -1,0 +1,20 @@
+{
+  "hardhat": {
+    "DocumentRegistry": {
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "chainId": 31337,
+      "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "txHash": "0xdbc5ca9e9da1d37acc63567d6e3e13f1e2d6d4259fbd2eec9e9d2d82bf156106",
+      "deployedAt": "2026-11-11T09:42:50.306Z"
+    }
+  },
+  "localhost": {
+    "DocumentRegistry": {
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "chainId": 31337,
+      "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "txHash": "0xffe2b6a242df1b532b1abf9d69c0e1c784baf34ae75841f6f533a7a8c17eed19",
+      "deployedAt": "2026-11-11T17:35:44.104Z"
+    }
+  }
+}
