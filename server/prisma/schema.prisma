@@ -1,0 +1,102 @@
+// Prisma schema for Document Verification System (Strict 3NF)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  role_id Int    @id @default(autoincrement())
+  name    String @unique
+  users   User[]
+
+  @@map("roles")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  role_id        Int
+  email          String   @unique
+  password_hash  String
+  wallet_address String?  @unique
+  created_at     DateTime @default(now())
+
+  role                 Role                 @relation(fields: [role_id], references: [role_id])
+  organization_profile OrganizationProfile?
+  issued_documents     Document[]           @relation("DocumentIssuer")
+  received_documents   Document[]           @relation("DocumentRecipient")
+  verification_logs    VerificationLog[]
+
+  @@map("users")
+}
+
+model OrganizationProfile {
+  user_id             String  @id
+  org_name            String
+  registration_number String  @unique
+  is_accredited       Boolean @default(false)
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("organization_profiles")
+}
+
+model DocumentType {
+  id                   Int        @id @default(autoincrement())
+  name                 String     @unique
+  validity_period_days Int?
+  documents            Document[]
+
+  @@map("document_types")
+}
+
+model Document {
+  id                 String   @id @default(uuid())
+  doc_type_id        Int
+  issuer_id          String
+  recipient_id       String
+  ipfs_cid           String
+  sha256_hash        String   @unique
+  blockchain_tx_hash String?
+  is_revoked         Boolean  @default(false)
+  issued_at          DateTime @default(now())
+
+  doc_type          DocumentType      @relation(fields: [doc_type_id], references: [id])
+  issuer            User              @relation("DocumentIssuer", fields: [issuer_id], references: [id])
+  recipient         User              @relation("DocumentRecipient", fields: [recipient_id], references: [id])
+  ai_analysis_logs  AiAnalysisLog[]
+  verification_logs VerificationLog[]
+
+  @@map("documents")
+}
+
+model AiAnalysisLog {
+  id                String   @id @default(uuid())
+  document_id       String
+  ocr_confidence    Decimal  @db.Decimal(5, 4)
+  tamper_detected   Boolean
+  ela_anomaly_score Decimal? @db.Decimal(5, 4)
+  analyzed_at       DateTime @default(now())
+
+  document Document @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@map("ai_analysis_logs")
+}
+
+model VerificationLog {
+  id                  String   @id @default(uuid())
+  document_id         String
+  verifier_id         String
+  verification_status String
+  verified_at         DateTime @default(now())
+
+  document Document @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  verifier User     @relation(fields: [verifier_id], references: [id])
+
+  @@map("verification_logs")
+}
+
