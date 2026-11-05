@@ -1,0 +1,44 @@
+{
+  "name": "document-verification-server",
+  "version": "1.0.0",
+  "description": "Backend API and PostgreSQL 3NF schema for Document Verification System",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node prisma/seed.js",
+    "verify:auth": "node scripts/verify-auth.js",
+    "verify:issue": "node scripts/verify-issue.js",
+    "verify:validation": "node scripts/verify-validation.js",
+    "verify:step5": "node scripts/verify-step5.js"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "express",
+    "postgresql",
+    "prisma",
+    "verification"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@pinata/sdk": "^3.0.1",
+    "@prisma/client": "^5.12.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.17.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "prisma": "^5.12.1"
+  }
+}
