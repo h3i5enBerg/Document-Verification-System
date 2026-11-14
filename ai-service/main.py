@@ -1,4 +1,3 @@
-
 from io import BytesIO
 
 import pymupdf as fitz
@@ -181,7 +180,12 @@ async def analyze_document(file: UploadFile = File(...)):
     except HTTPException:
         raise
 
-    except (fitz.FileDataError, UnidentifiedImageError):
+    except (
+        fitz.FileDataError,
+        UnidentifiedImageError,
+        ValueError,
+        RuntimeError
+    ):
         raise HTTPException(
             status_code=415,
             detail="Uploaded file is invalid or corrupted."
