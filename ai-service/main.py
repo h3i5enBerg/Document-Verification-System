@@ -1,6 +1,6 @@
 
 from io import BytesIO
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageStat, UnidentifiedImageError
 from fastapi import FastAPI, UploadFile, File, HTTPException
 import pytesseract
 
@@ -11,6 +11,40 @@ app = FastAPI(
 )
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+def calculate_ela_score(image):
+    # ELA is only calculated for JPEG images
+    if image.format != "JPEG":
+        return None
+
+    # Convert image to RGB before recompression
+    original_image = image.convert("RGB")
+
+    # Re-save the image at JPEG quality 90
+    compressed_buffer = BytesIO()
+    original_image.save(
+        compressed_buffer,
+        format="JPEG",
+        quality=90
+    )
+
+    compressed_buffer.seek(0)
+    compressed_image = Image.open(compressed_buffer).convert("RGB")
+
+    # Calculate pixel differences between original and compressed images
+    difference = ImageChops.difference(
+        original_image,
+        compressed_image
+    )
+
+    # Calculate the average pixel difference
+    statistics = ImageStat.Stat(difference)
+    mean_difference = sum(statistics.mean) / len(statistics.mean)
+
+    # Normalize the score between 0 and 1
+    ela_score = round(mean_difference / 255, 4)
+
+    return ela_score
 
 
 @app.get("/")
@@ -59,6 +93,8 @@ async def analyze_document(file: UploadFile = File(...)):
         image = Image.open(BytesIO(contents))
         dimensions = list(image.size)
         file_type = f"image/{image.format.lower()}"
+        
+        ela_anomaly_score = calculate_ela_score(image)
 
         # Extract text using Tesseract OCR
         extracted_text = pytesseract.image_to_string(image)
@@ -100,7 +136,7 @@ async def analyze_document(file: UploadFile = File(...)):
     return {
         "ocr_confidence": ocr_confidence,
         "tamper_detected": False,
-        "ela_anomaly_score": None,
+        "ela_anomaly_score": ela_anomaly_score,
         "extracted_text": extracted_text,
         "metadata": {
             "dimensions": dimensions,
