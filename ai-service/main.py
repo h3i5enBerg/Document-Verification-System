@@ -2,6 +2,7 @@
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
 from fastapi import FastAPI, UploadFile, File, HTTPException
+import pytesseract
 
 app = FastAPI(
     title="AI Document Verification Service",
@@ -16,6 +17,7 @@ def home():
     return {
         "message": "AI Document Verification Service is running!"
     }
+
 
 
 
@@ -59,6 +61,9 @@ async def analyze_document(file: UploadFile = File(...)):
         dimensions = list(image.size)
         file_type = f"image/{image.format.lower()}"
 
+        # Extract text using Tesseract OCR
+        extracted_text = pytesseract.image_to_string(image)
+
     except UnidentifiedImageError:
         raise HTTPException(
             status_code=415,
@@ -74,7 +79,7 @@ async def analyze_document(file: UploadFile = File(...)):
         "ocr_confidence": 0.0,
         "tamper_detected": False,
         "ela_anomaly_score": None,
-        "extracted_text": "",
+        "extracted_text": extracted_text,
         "metadata": {
             "dimensions": dimensions,
             "file_type": file_type
