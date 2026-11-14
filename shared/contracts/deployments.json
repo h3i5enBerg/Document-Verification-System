@@ -16,5 +16,14 @@
       "txHash": "0xffe2b6a242df1b532b1abf9d69c0e1c784baf34ae75841f6f533a7a8c17eed19",
       "deployedAt": "2026-11-11T17:35:44.104Z"
     }
+  },
+  "amoy": {
+    "DocumentRegistry": {
+      "address": "0x032c93B3393C020C20C913A34fC2faDE3516FdB8",
+      "chainId": 80002,
+      "deployer": "0xe81E2A2b765fD3D88995C8952563e1C8f1329bc5",
+      "txHash": "0xe48537b272f162d3f4abf4ca8c7857d4b2d70c5d47289b2dd289ce579b90812c",
+      "deployedAt": "2026-11-14T19:54:51.390Z"
+    }
   }
 }
