@@ -12,13 +12,12 @@ app = FastAPI(
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+
 @app.get("/")
 def home():
     return {
         "message": "AI Document Verification Service is running!"
     }
-
-
 
 
 @app.post("/api/v1/analyze-document")
@@ -64,6 +63,29 @@ async def analyze_document(file: UploadFile = File(...)):
         # Extract text using Tesseract OCR
         extracted_text = pytesseract.image_to_string(image)
 
+        # Get word-level OCR confidence scores
+        ocr_data = pytesseract.image_to_data(
+            image,
+            output_type=pytesseract.Output.DICT
+        )
+
+        confidence_scores = []
+
+        for confidence in ocr_data["conf"]:
+            confidence = float(confidence)
+
+            if confidence > 0:
+                confidence_scores.append(confidence)
+
+        # Calculate average confidence and normalize it between 0 and 1
+        if confidence_scores:
+            ocr_confidence = round(
+                sum(confidence_scores) / len(confidence_scores) / 100,
+                3
+            )
+        else:
+            ocr_confidence = 0.0
+
     except UnidentifiedImageError:
         raise HTTPException(
             status_code=415,
@@ -76,7 +98,7 @@ async def analyze_document(file: UploadFile = File(...)):
         )
 
     return {
-        "ocr_confidence": 0.0,
+        "ocr_confidence": ocr_confidence,
         "tamper_detected": False,
         "ela_anomaly_score": None,
         "extracted_text": extracted_text,
