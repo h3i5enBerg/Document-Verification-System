@@ -71,9 +71,12 @@ async def analyze_document(file: UploadFile = File(...)):
         )
 
     return {
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "dimensions": dimensions,
-        "file_type": file_type,
-        "message": "Document validated successfully."
+        "ocr_confidence": 0.0,
+        "tamper_detected": False,
+        "ela_anomaly_score": None,
+        "extracted_text": "",
+        "metadata": {
+            "dimensions": dimensions,
+            "file_type": file_type
+        }
     }
