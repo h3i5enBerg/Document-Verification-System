@@ -1,18 +1,25 @@
 /**
- * Automated verification script for Step 3 Document Issuance & On-Chain Anchoring pipeline.
+ * Automated verification script for Step 3:
+ * Document Issuance & On-Chain Anchoring.
  *
  * Prerequisites:
- *   1. PostgreSQL running (docker compose up -d) with schema pushed & seeded (npx prisma db seed).
- *   2. Local Hardhat node running on http://127.0.0.1:8545 with DocumentRegistry deployed
- *      (cd contracts && npx hardhat node & npm run deploy:local).
+ * 1. PostgreSQL running and database seeded.
+ * 2. Local Hardhat node running on http://127.0.0.1:8545.
+ * 3. DocumentRegistry deployed.
+ * 4. AI service running on http://localhost:8000.
  *
- * Usage: node scripts/verify-issue.js
+ * Usage:
+ * npm run verify:issue
  */
+
 require("dotenv").config();
+
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+
 const app = require("../src/server");
 const prisma = require("../src/config/prisma");
 const blockchainService = require("../src/services/blockchain.service");
@@ -29,31 +36,93 @@ function assert(condition, message) {
 async function ensureIssuerAuthorizedOnChain() {
   const provider = blockchainService.getProvider();
   const address = blockchainService.getDeployedAddress();
-  const abiPath = path.resolve(__dirname, "../../shared/abi/DocumentRegistry.json");
+
+  const abiPath = path.resolve(
+    __dirname,
+    "../../shared/abi/DocumentRegistry.json",
+  );
+
   const { abi } = JSON.parse(fs.readFileSync(abiPath, "utf8"));
 
   const issuerKey =
     process.env.BLOCKCHAIN_PRIVATE_KEY ||
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
   const issuerWallet = new ethers.Wallet(issuerKey, provider);
   const readContract = new ethers.Contract(address, abi, provider);
 
-  const isAuthorized = await readContract.authorizedIssuers(issuerWallet.address);
+  const isAuthorized = await readContract.authorizedIssuers(
+    issuerWallet.address,
+  );
+
   if (!isAuthorized) {
-    console.log(
-      `[verify-issue] Authorizing issuer ${issuerWallet.address} via admin account...`
-    );
+    console.log(`[verify-issue] Authorizing issuer ${issuerWallet.address}...`);
+
     const adminWallet = new ethers.Wallet(HARDHAT_ADMIN_KEY, provider);
     const adminContract = new ethers.Contract(address, abi, adminWallet);
+
     const tx = await adminContract.setIssuerStatus(issuerWallet.address, true);
+
     await tx.wait();
+
     console.log("[verify-issue] Issuer authorized on-chain.");
   }
 }
 
+async function generateMockCertificate() {
+  const uniqueSuffix = `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  page.drawText("MOCK UNIVERSITY CERTIFICATE", {
+    x: 50,
+    y: 700,
+    size: 20,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawText(`Certificate ID: ${uniqueSuffix}`, {
+    x: 50,
+    y: 660,
+    size: 12,
+    font,
+  });
+
+  page.drawText("This document is generated for local testing.", {
+    x: 50,
+    y: 630,
+    size: 12,
+    font,
+  });
+
+  const fileBuffer = Buffer.from(await pdfDoc.save());
+
+  const expectedHash = `0x${crypto
+    .createHash("sha256")
+    .update(fileBuffer)
+    .digest("hex")}`;
+
+  return {
+    fileBuffer,
+    uniqueSuffix,
+    expectedHash,
+  };
+}
+
 async function run() {
-  if (!process.env.PINATA_JWT && (!process.env.PINATA_API_KEY || !process.env.PINATA_SECRET_API_KEY)) {
-    console.log("[verify-issue] Pinata credentials not set; enabling IPFS_MOCK=true for local test.");
+  if (
+    !process.env.PINATA_JWT &&
+    (!process.env.PINATA_API_KEY || !process.env.PINATA_SECRET_API_KEY)
+  ) {
+    console.log(
+      "[verify-issue] Pinata credentials not set; enabling IPFS_MOCK=true.",
+    );
+
     process.env.IPFS_MOCK = "true";
   }
 
@@ -62,39 +131,60 @@ async function run() {
   const server = app.listen(0);
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
+
   let createdDocId = null;
 
   try {
-    // 1. Login as seeded ISSUER
-    console.log("[verify-issue] 1. Logging in as seeded ISSUER (issuer@university.edu)...");
+    // STEP 1: Login as seeded ISSUER.
+
+    console.log("[verify-issue] 1. Logging in as seeded ISSUER...");
+
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         email: "issuer@university.edu",
         password: "IssuerPass123!",
       }),
     });
+
     const loginBody = await loginRes.json();
-    assert(loginRes.status === 200 && loginBody.token, `Login failed: ${JSON.stringify(loginBody)}`);
+
+    assert(
+      loginRes.status === 200 && loginBody.token,
+      `Login failed: ${JSON.stringify(loginBody)}`,
+    );
+
     const token = loginBody.token;
-    console.log("  -> Logged in. UserId:", loginBody.user.userId);
 
-    // 2. Generate mock certificate PDF buffer
-    const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const mockPdfContent = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n% Mock Certificate ${uniqueSuffix}\n%%EOF\n`;
-    const fileBuffer = Buffer.from(mockPdfContent, "utf8");
-    const expectedHash = `0x${crypto.createHash("sha256").update(fileBuffer).digest("hex")}`;
-    console.log("[verify-issue] 2. Generated mock PDF buffer. SHA-256:", expectedHash);
+    console.log("  -> Login successful.");
 
-    // 3. Send multipart request to POST /api/documents/issue
-    console.log("[verify-issue] 3. Sending multipart POST /api/documents/issue...");
+    // STEP 2: Generate a valid PDF certificate.
+
+    const { fileBuffer, uniqueSuffix, expectedHash } =
+      await generateMockCertificate();
+
+    console.log(
+      "[verify-issue] 2. Generated valid PDF. SHA-256:",
+      expectedHash,
+    );
+
+    // STEP 3: Issue document.
+
+    console.log("[verify-issue] 3. Sending POST /api/documents/issue...");
+
     const formData = new FormData();
+
     formData.append(
       "document",
-      new Blob([fileBuffer], { type: "application/pdf" }),
-      `certificate-${uniqueSuffix}.pdf`
+      new Blob([fileBuffer], {
+        type: "application/pdf",
+      }),
+      `certificate-${uniqueSuffix}.pdf`,
     );
+
     formData.append("recipient_email", "citizen@example.com");
     formData.append("doc_type_id", "1");
 
@@ -107,80 +197,186 @@ async function run() {
     });
 
     const issueBody = await issueRes.json();
+
     assert(
       issueRes.status === 201,
-      `Expected HTTP 201, got ${issueRes.status}: ${JSON.stringify(issueBody)}`
+      `Expected HTTP 201, received ${issueRes.status}: ${JSON.stringify(
+        issueBody,
+      )}`,
     );
+
     createdDocId = issueBody.document.id;
-    console.log("  -> 201 Created:", {
+
+    console.log("  -> Document issued:", {
       id: issueBody.document.id,
       sha256_hash: issueBody.document.sha256_hash,
       ipfs_cid: issueBody.document.ipfs_cid,
       blockchain_tx_hash: issueBody.document.blockchain_tx_hash,
       ai_service_offline: issueBody.ai_analysis.service_offline,
+      ocr_confidence: issueBody.ai_analysis.ocr_confidence,
+      extracted_text: issueBody.ai_analysis.extracted_text,
+      tamper_detected: issueBody.ai_analysis.tamper_detected,
     });
 
-    // 4a. Assert response hash matches computed hash
+    // STEP 4: Verify document hash.
+
     assert(
       issueBody.document.sha256_hash === expectedHash,
-      `Hash mismatch: expected ${expectedHash}, got ${issueBody.document.sha256_hash}`
+      "Document SHA-256 hash does not match the uploaded PDF.",
     );
 
-    // 4b. Assert PostgreSQL documents and ai_analysis_logs entries
-    const dbDoc = await prisma.document.findUnique({
-      where: { id: createdDocId },
-      include: { ai_analysis_logs: true },
-    });
-    assert(dbDoc !== null, "Document row missing in PostgreSQL");
-    assert(dbDoc.sha256_hash === expectedHash, "DB sha256_hash mismatch");
-    assert(dbDoc.ipfs_cid === issueBody.document.ipfs_cid, "DB ipfs_cid mismatch");
-    assert(dbDoc.blockchain_tx_hash === issueBody.document.blockchain_tx_hash, "DB tx hash mismatch");
-    assert(dbDoc.ai_analysis_logs.length === 1, "AiAnalysisLog row missing in PostgreSQL");
-    console.log("  -> PostgreSQL documents & ai_analysis_logs verified.");
+    console.log("  -> SHA-256 hash verified.");
 
-    // 4c. Assert on-chain record matches computed hash
+    // STEP 5: Verify AI service response.
+
+    assert(
+      issueBody.ai_analysis.service_offline === false,
+      "AI service is offline or returned fallback data.",
+    );
+
+    assert(
+      issueBody.ai_analysis.ocr_confidence > 0,
+      "OCR confidence should be greater than zero.",
+    );
+
+    assert(
+      typeof issueBody.ai_analysis.extracted_text === "string" &&
+        issueBody.ai_analysis.extracted_text.trim().length > 0,
+      "OCR extracted_text is missing from the API response.",
+    );
+
+    assert(
+      issueBody.ai_analysis.extracted_text.includes(
+        "MOCK UNIVERSITY CERTIFICATE",
+      ),
+      "OCR response does not contain the expected certificate text.",
+    );
+
+    console.log("  -> AI service and OCR response verified.");
+
+    // STEP 6: Verify PostgreSQL records.
+
+    const dbDoc = await prisma.document.findUnique({
+      where: {
+        id: createdDocId,
+      },
+      include: {
+        ai_analysis_logs: true,
+      },
+    });
+
+    assert(dbDoc !== null, "Document row missing from PostgreSQL.");
+
+    assert(
+      dbDoc.sha256_hash === expectedHash,
+      "PostgreSQL document hash mismatch.",
+    );
+
+    assert(
+      dbDoc.ipfs_cid === issueBody.document.ipfs_cid,
+      "PostgreSQL IPFS CID mismatch.",
+    );
+
+    assert(
+      dbDoc.blockchain_tx_hash === issueBody.document.blockchain_tx_hash,
+      "PostgreSQL blockchain transaction hash mismatch.",
+    );
+
+    assert(
+      dbDoc.ai_analysis_logs.length === 1,
+      "AI analysis log missing from PostgreSQL.",
+    );
+
+    console.log("  -> PostgreSQL documents and ai_analysis_logs verified.");
+
+    // STEP 7: Verify on-chain record.
+
     const onChain = await blockchainService.verifyDocumentOnChain(expectedHash);
-    assert(onChain.exists === true, "Document not found on-chain");
-    assert(onChain.ipfsCID === issueBody.document.ipfs_cid, "On-chain ipfsCID mismatch");
-    assert(onChain.isRevoked === false, "Expected on-chain isRevoked to be false");
+
+    assert(onChain.exists === true, "Document not found on the blockchain.");
+
+    assert(
+      onChain.ipfsCID === issueBody.document.ipfs_cid,
+      "On-chain IPFS CID mismatch.",
+    );
+
+    assert(
+      onChain.isRevoked === false,
+      "Newly issued document should not be revoked.",
+    );
+
     console.log("  -> On-chain DocumentRegistry record verified:", onChain);
 
-    // 5. Verify GET /api/documents/my-issued pagination
-    const listRes = await fetch(`${baseUrl}/api/documents/my-issued?page=1&limit=5`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const listBody = await listRes.json();
-    assert(listRes.status === 200, `Expected 200 on my-issued, got ${listRes.status}`);
-    assert(
-      listBody.data.some((d) => d.id === createdDocId),
-      "Issued document missing from /api/documents/my-issued"
+    // STEP 8: Verify issuer document listing.
+
+    const listRes = await fetch(
+      `${baseUrl}/api/documents/my-issued?page=1&limit=5`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
     );
+
+    const listBody = await listRes.json();
+
+    assert(
+      listRes.status === 200,
+      `Expected HTTP 200 from my-issued, received ${listRes.status}.`,
+    );
+
+    assert(
+      listBody.data.some((doc) => doc.id === createdDocId),
+      "Issued document missing from my-issued endpoint.",
+    );
+
     console.log("  -> GET /api/documents/my-issued verified.");
 
-    // 6. Verify duplicate hash prevention (409 Conflict)
-    const dupFormData = new FormData();
-    dupFormData.append(
-      "document",
-      new Blob([fileBuffer], { type: "application/pdf" }),
-      `certificate-${uniqueSuffix}.pdf`
-    );
-    dupFormData.append("recipient_email", "citizen@example.com");
-    dupFormData.append("doc_type_id", "1");
+    // STEP 9: Verify duplicate hash prevention.
 
-    const dupRes = await fetch(`${baseUrl}/api/documents/issue`, {
+    const duplicateFormData = new FormData();
+
+    duplicateFormData.append(
+      "document",
+      new Blob([fileBuffer], {
+        type: "application/pdf",
+      }),
+      `certificate-${uniqueSuffix}.pdf`,
+    );
+
+    duplicateFormData.append("recipient_email", "citizen@example.com");
+
+    duplicateFormData.append("doc_type_id", "1");
+
+    const duplicateRes = await fetch(`${baseUrl}/api/documents/issue`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: dupFormData,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: duplicateFormData,
     });
-    assert(dupRes.status === 409, `Expected 409 for duplicate document, got ${dupRes.status}`);
+
+    assert(
+      duplicateRes.status === 409,
+      `Expected HTTP 409 for duplicate document, received ${duplicateRes.status}.`,
+    );
+
     console.log("  -> Duplicate hash rejection (409) verified.");
 
-    console.log("[verify-issue] ALL STEP 3 DOCUMENT ISSUANCE CHECKS PASSED!");
+    console.log("\n[verify-issue] ALL STEP 3 DOCUMENT ISSUANCE CHECKS PASSED!");
   } finally {
     if (createdDocId) {
-      await prisma.document.delete({ where: { id: createdDocId } }).catch(() => {});
+      await prisma.document
+        .delete({
+          where: {
+            id: createdDocId,
+          },
+        })
+        .catch(() => {});
     }
+
     await prisma.$disconnect();
+
     server.close();
   }
 }
@@ -189,4 +385,3 @@ run().catch((err) => {
   console.error("[verify-issue] FAILED:", err);
   process.exit(1);
 });
-
