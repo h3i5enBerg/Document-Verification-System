@@ -19,7 +19,8 @@ async function issueDocument(req, res, next) {
       });
     }
 
-    const { recipient_email, recipient_id, recipient_address, doc_type_id } = req.body;
+    const { recipient_email, recipient_id, recipient_address, doc_type_id } =
+      req.body;
 
     const parsedDocTypeId = Number(doc_type_id);
     if (!Number.isInteger(parsedDocTypeId) || parsedDocTypeId <= 0) {
@@ -39,6 +40,7 @@ async function issueDocument(req, res, next) {
     const docType = await prisma.documentType.findUnique({
       where: { id: parsedDocTypeId },
     });
+
     if (!docType) {
       return res.status(400).json({
         error: "ValidationError",
@@ -51,6 +53,7 @@ async function issueDocument(req, res, next) {
         ? { id: String(recipient_id).trim() }
         : { email: String(recipient_email).trim().toLowerCase() },
     });
+
     if (!recipient) {
       return res.status(404).json({
         error: "NotFound",
@@ -58,7 +61,12 @@ async function issueDocument(req, res, next) {
       });
     }
 
-    const targetWallet = (recipient_address || recipient.wallet_address || "").trim();
+    const targetWallet = (
+      recipient_address ||
+      recipient.wallet_address ||
+      ""
+    ).trim();
+
     if (!targetWallet || !ethers.isAddress(targetWallet)) {
       return res.status(400).json({
         error: "ValidationError",
@@ -67,48 +75,57 @@ async function issueDocument(req, res, next) {
       });
     }
 
-    // 3. Calculate SHA-256 hash formatted as bytes32 (0x-prefixed 64 hex chars)
-    const hashHex = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+    // 3. Calculate SHA-256 hash formatted as bytes32
+    const hashHex = crypto
+      .createHash("sha256")
+      .update(req.file.buffer)
+      .digest("hex");
+
     const docHashBytes32 = `0x${hashHex}`;
 
     // 4. Duplicate checks in PostgreSQL and on-chain
     const existingDoc = await prisma.document.findUnique({
       where: { sha256_hash: docHashBytes32 },
     });
+
     if (existingDoc) {
       return res.status(409).json({
         error: "Conflict",
-        message: "A document with this SHA-256 hash has already been issued in the database.",
+        message:
+          "A document with this SHA-256 hash has already been issued in the database.",
         existingDocumentId: existingDoc.id,
       });
     }
 
-    const onChainStatus = await blockchainService.verifyDocumentOnChain(docHashBytes32);
+    const onChainStatus =
+      await blockchainService.verifyDocumentOnChain(docHashBytes32);
+
     if (onChainStatus.exists) {
       return res.status(409).json({
         error: "Conflict",
-        message: "A document with this SHA-256 hash is already anchored on-chain.",
+        message:
+          "A document with this SHA-256 hash is already anchored on-chain.",
       });
     }
 
-    // 5. Run AI OCR & tampering check (falls back gracefully if AI service is offline)
+    // 5. Run AI OCR and tampering check
     const aiResult = await aiGatewayService.analyzeDocument(
       req.file.buffer,
       req.file.originalname,
-      req.file.mimetype
+      req.file.mimetype,
     );
 
     // 6. Pin document bytes to IPFS
     const ipfsCid = await ipfsService.pinFileToIPFS(
       req.file.buffer,
-      req.file.originalname
+      req.file.originalname,
     );
 
     // 7. Anchor hash, recipient, and CID on-chain
     const receipt = await blockchainService.issueDocumentOnChain(
       docHashBytes32,
       targetWallet,
-      ipfsCid
+      ipfsCid,
     );
 
     // 8. Persist Document and AiAnalysisLog in a single Prisma transaction
@@ -139,6 +156,7 @@ async function issueDocument(req, res, next) {
 
     return res.status(201).json({
       message: "Document issued and anchored successfully.",
+
       document: {
         id: document.id,
         sha256_hash: document.sha256_hash,
@@ -148,12 +166,19 @@ async function issueDocument(req, res, next) {
         issued_at: document.issued_at,
         is_revoked: document.is_revoked,
       },
+
       ai_analysis: {
         id: aiLog.id,
         ocr_confidence: Number(aiLog.ocr_confidence),
+
+        // Pass OCR text received from the AI gateway to the API response
+        extracted_text: aiResult.extracted_text || null,
+
         tamper_detected: aiLog.tamper_detected,
         ela_anomaly_score:
-          aiLog.ela_anomaly_score !== null ? Number(aiLog.ela_anomaly_score) : null,
+          aiLog.ela_anomaly_score !== null
+            ? Number(aiLog.ela_anomaly_score)
+            : null,
         service_offline: Boolean(aiResult.service_offline),
       },
     });
@@ -164,6 +189,7 @@ async function issueDocument(req, res, next) {
         message: "A document with this SHA-256 hash already exists.",
       });
     }
+
     return next(err);
   }
 }
@@ -175,13 +201,17 @@ async function issueDocument(req, res, next) {
 async function getIssuerDocuments(req, res, next) {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 10),
+    );
     const skip = (page - 1) * limit;
 
     const where = { issuer_id: req.user.userId };
 
     const [total, documents] = await Promise.all([
       prisma.document.count({ where }),
+
       prisma.document.findMany({
         where,
         skip,
@@ -254,20 +284,26 @@ async function revokeDocument(req, res, next) {
     }
 
     let where;
+
     if (document_id) {
       where = { id: String(document_id).trim() };
     } else {
-      const match = String(hash).trim().match(/^(0x)?([0-9a-fA-F]{64})$/);
+      const match = String(hash)
+        .trim()
+        .match(/^(0x)?([0-9a-fA-F]{64})$/);
+
       if (!match) {
         return res.status(400).json({
           error: "ValidationError",
           message: "Invalid hash format (expected 64-character hex string).",
         });
       }
+
       where = { sha256_hash: `0x${match[2].toLowerCase()}` };
     }
 
     const doc = await prisma.document.findUnique({ where });
+
     if (!doc) {
       return res.status(404).json({
         error: "NotFound",
@@ -282,7 +318,10 @@ async function revokeDocument(req, res, next) {
       });
     }
 
-    const onChainRecord = await blockchainService.verifyDocumentOnChain(doc.sha256_hash);
+    const onChainRecord = await blockchainService.verifyDocumentOnChain(
+      doc.sha256_hash,
+    );
+
     if (doc.is_revoked || onChainRecord.isRevoked) {
       return res.status(400).json({
         error: "BadRequest",
@@ -290,9 +329,8 @@ async function revokeDocument(req, res, next) {
       });
     }
 
-    const { txHash, blockNumber } = await blockchainService.revokeDocumentOnChain(
-      doc.sha256_hash
-    );
+    const { txHash, blockNumber } =
+      await blockchainService.revokeDocumentOnChain(doc.sha256_hash);
 
     const updated = await prisma.document.update({
       where: { id: doc.id },
@@ -315,4 +353,3 @@ module.exports = {
   getIssuerDocuments,
   revokeDocument,
 };
-
