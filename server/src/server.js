@@ -1,6 +1,10 @@
+
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const { createLogger } = require("@suhanyyysm/pretty");
+
+const logger = createLogger();
 
 dotenv.config();
 
@@ -40,14 +44,17 @@ app.use((req, res, next) => {
 
 // Centralized error handling middleware
 app.use((err, req, res, next) => {
-  console.error("[ServerError]", err);
+  logger.error("[ServerError]", err.message);
+
   if (err.name === "MulterError") {
     return res.status(400).json({
       error: "UploadError",
       message: err.message,
     });
   }
+
   const status = err.status || 500;
+
   return res.status(status).json({
     error: err.name || "InternalServerError",
     message: err.message || "An unexpected error occurred",
@@ -57,9 +64,10 @@ app.use((err, req, res, next) => {
 // Start server if not imported as a module
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`[DocumentVerificationServer] Running on port ${PORT}`);
+    logger.success(
+      `Document Verification Server running on port ${PORT}`
+    );
   });
 }
 
 module.exports = app;
-
