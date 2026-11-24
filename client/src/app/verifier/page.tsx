@@ -3,36 +3,43 @@
 import { useState } from "react";
 import Link from "next/link";
 
-const API = "https://fresh-poets-nail.loca.lt";
+const API = process.env.NEXT_PUBLIC_API_URL || "https://doc-verify-api-3yb4.onrender.com";
 
 export default function VerifierPage() {
   const [hash, setHash] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function request(path: string, body: any, isFile = false) {
+  async function request(path: string, body: unknown, isFile = false) {
     setLoading(true);
     setError("");
     setResult(null);
 
     try {
+      const headers: Record<string, string> = {
+        "x-localtunnel-skip-warning": "true",
+      };
+      if (!isFile) {
+        headers["Content-Type"] = "application/json";
+      }
+
       const response = await fetch(`${API}${path}`, {
         method: "POST",
-        headers: { "x-localtunnel-skip-warning": "true" },
-        body: isFile ? body : JSON.stringify(body),
-        ...(isFile ? {} : { headers: {
-          "Content-Type": "application/json",
-          "x-localtunnel-skip-warning": "true"
-        }})
+        headers,
+        body: isFile ? (body as BodyInit) : JSON.stringify(body),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || data.error || JSON.stringify(data));
       setResult(data);
-    } catch (e: any) {
-      setError(e.message || "Could not connect to backend.");
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setError(e.message);
+      } else {
+        setError("Could not connect to backend.");
+      }
     } finally {
       setLoading(false);
     }
@@ -86,14 +93,14 @@ export default function VerifierPage() {
         {loading && <p className="mt-6 text-blue-300">Checking backend, blockchain and AI service...</p>}
         {error && <pre className="mt-6 whitespace-pre-wrap rounded-xl border border-red-800 bg-red-950/30 p-5 text-red-300">{error}</pre>}
 
-        {result && (
+        {result ? (
           <section className="mt-8 rounded-2xl border border-green-800 bg-slate-900 p-6">
             <h2 className="text-xl font-bold text-green-400">Live Verification Response</h2>
             <pre className="mt-4 overflow-x-auto whitespace-pre-wrap break-words text-sm text-slate-200">
               {JSON.stringify(result, null, 2)}
             </pre>
           </section>
-        )}
+        ) : null}
       </div>
     </main>
   );
