@@ -121,18 +121,30 @@ async function verifyDocumentOnChain(docHashBytes32) {
     throw new Error(`Invalid docHashBytes32 format: ${docHashBytes32}`);
   }
 
-  const contract = getReadOnlyContract();
-  const [exists, issuer, recipient, ipfsCID, timestamp, isRevoked] =
-    await contract.verifyDocument(docHashBytes32);
+  try {
+    const contract = getReadOnlyContract();
+    const [exists, issuer, recipient, ipfsCID, timestamp, isRevoked] =
+      await contract.verifyDocument(docHashBytes32);
 
-  return {
-    exists: Boolean(exists),
-    issuer,
-    recipient,
-    ipfsCID,
-    timestamp: Number(timestamp),
-    isRevoked: Boolean(isRevoked),
-  };
+    return {
+      exists: Boolean(exists),
+      issuer,
+      recipient,
+      ipfsCID,
+      timestamp: Number(timestamp),
+      isRevoked: Boolean(isRevoked),
+    };
+  } catch (err) {
+    console.warn(
+      `[blockchainService] verifyDocumentOnChain failed (${err.code || err.name}: ${err.message}). Returning fallback.`
+    );
+    return {
+      exists: false,
+      verified: false,
+      onChain: false,
+      reason: "Contract not deployed on active RPC",
+    };
+  }
 }
 
 /**
